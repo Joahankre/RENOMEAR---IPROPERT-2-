@@ -1,0 +1,304 @@
+Sub Main()
+    ' Verifica se o documento ativo é uma montagem
+    If ThisApplication.ActiveDocumentType <> DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Abra uma montagem (.iam) antes de rodar esta regra.", "Erro")
+        Return
+    End If
+
+    Dim oAsmDoc As AssemblyDocument = ThisApplication.ActiveDocument
+
+    ' Criar formulário de seleção dos modelos
+    Dim frmSelecao As New System.Windows.Forms.Form With {
+        .Text = "Selecione os modelos para editar propriedades",
+        .Width = 600,
+        .Height = 800,
+        .StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+    }
+
+    ' Painel principal
+    Dim mainPanel As New System.Windows.Forms.Panel With {.Dock = System.Windows.Forms.DockStyle.Fill}
+    frmSelecao.Controls.Add(mainPanel)
+
+    ' Criar TreeView
+    Dim treeModelos As New System.Windows.Forms.TreeView With {
+        .Dock = System.Windows.Forms.DockStyle.Fill,
+        .CheckBoxes = True
+    }
+    mainPanel.Controls.Add(treeModelos)
+
+    ' Botões Selecionar Todos / Desselecionar Todos
+    Dim panelBotoesSelecao As New System.Windows.Forms.Panel With {.Dock = System.Windows.Forms.DockStyle.Bottom, .Height = 40}
+    mainPanel.Controls.Add(panelBotoesSelecao)
+
+    Dim btnSelecionarTodos As New System.Windows.Forms.Button With {.Text = "Selecionar Todos", .Width = 120, .Left = 10, .Top = 5}
+    panelBotoesSelecao.Controls.Add(btnSelecionarTodos)
+
+    Dim btnDesselecionarTodos As New System.Windows.Forms.Button With {.Text = "Desselecionar Todos", .Width = 140, .Left = 140, .Top = 5}
+    panelBotoesSelecao.Controls.Add(btnDesselecionarTodos)
+
+    AddHandler btnSelecionarTodos.Click, Sub() AlterarSelecaoTodos(treeModelos.Nodes, True)
+    AddHandler btnDesselecionarTodos.Click, Sub() AlterarSelecaoTodos(treeModelos.Nodes, False)
+
+    ' Botão Confirmar
+    Dim btnOk As New System.Windows.Forms.Button With {.Text = "Confirmar", .Dock = System.Windows.Forms.DockStyle.Bottom, .Height = 40}
+    frmSelecao.Controls.Add(btnOk)
+
+    AddHandler btnOk.Click, Sub()
+        If Not ExisteNoMarcado(treeModelos.Nodes) Then
+            MessageBox.Show("Selecione ao menos um modelo.", "Aviso")
+            Return
+        End If
+        frmSelecao.DialogResult = System.Windows.Forms.DialogResult.OK
+        frmSelecao.Close()
+    End Sub
+
+    ' Preencher TreeView com a BOM
+    AtualizarArvoreBOM_Montagem(treeModelos, oAsmDoc)
+
+    ' Mostrar formulário de seleção
+    If frmSelecao.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return
+
+    ' Obter documentos selecionados
+    Dim modelosSelecionados As New List(Of Document)
+    ObterDocumentosSelecionados(treeModelos.Nodes, modelosSelecionados)
+
+    If modelosSelecionados.Count = 0 Then
+        MessageBox.Show("Nenhum modelo selecionado.", "Aviso")
+        Return
+    End If
+
+    ' Formulário de edição das propriedades
+    Dim frmProps As New System.Windows.Forms.Form With {
+        .Text = "Editar iProperties",
+        .Width = 450,
+        .Height = 500,
+        .StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+    }
+
+    Dim layout As New System.Windows.Forms.TableLayoutPanel With {
+        .Dock = System.Windows.Forms.DockStyle.Fill,
+        .RowCount = 10,
+        .ColumnCount = 2,
+        .Padding = New Padding(10),
+        .AutoSize = True
+    }
+    layout.ColumnStyles.Add(New System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 35))
+    layout.ColumnStyles.Add(New System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 65))
+    frmProps.Controls.Add(layout)
+
+    ' Campos de edição
+    Dim campos As New Dictionary(Of String, System.Windows.Forms.TextBox)
+    Dim labels As String() = {"Título", "Autor", "Responsável", "Empresa", "Projetista", "Engenheiro", "Fornecedor", "WebLink", "Assunto"}
+
+    For Each lbl In labels
+        layout.RowStyles.Add(New System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 30))
+
+        Dim labelControl As New System.Windows.Forms.Label With {
+            .Text = lbl,
+            .AutoSize = False,
+            .Dock = DockStyle.Fill,
+            .Padding = New Padding(0, 5, 5, 0)
+        }
+
+        Dim tb As New System.Windows.Forms.TextBox With {
+            .Dock = DockStyle.Fill
+        }
+
+        layout.Controls.Add(labelControl)
+        layout.Controls.Add(tb)
+        campos(lbl) = tb
+    Next
+
+    ' Campo Data de Criação
+    layout.RowStyles.Add(New System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 30))
+    Dim lblData As New System.Windows.Forms.Label With {
+        .Text = "Data de Criação",
+        .AutoSize = False,
+        .Dock = DockStyle.Fill,
+        .Padding = New Padding(0, 5, 5, 0)
+    }
+    Dim dtp As New System.Windows.Forms.DateTimePicker With {
+        .Dock = DockStyle.Fill,
+        .Value = DateTime.Today
+    }
+    layout.Controls.Add(lblData)
+    layout.Controls.Add(dtp)
+
+    ' Botão Aplicar
+    Dim btnAplicar As New System.Windows.Forms.Button With {
+        .Text = "Aplicar",
+        .Dock = System.Windows.Forms.DockStyle.Bottom,
+        .Height = 40
+    }
+    frmProps.Controls.Add(btnAplicar)
+
+    AddHandler btnAplicar.Click, Sub()
+        frmProps.DialogResult = System.Windows.Forms.DialogResult.OK
+        frmProps.Close()
+    End Sub
+
+    If frmProps.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return
+
+    ' Captura valores digitados
+    Dim titulo As String = campos("Título").Text.Trim()
+    Dim autor As String = campos("Autor").Text.Trim()
+    Dim responsavel As String = campos("Responsável").Text.Trim()
+    Dim empresa As String = campos("Empresa").Text.Trim()
+    Dim projetista As String = campos("Projetista").Text.Trim()
+    Dim engenheiro As String = campos("Engenheiro").Text.Trim()
+    Dim fornecedor As String = campos("Fornecedor").Text.Trim()
+    Dim webLink As String = campos("WebLink").Text.Trim()
+    Dim assunto As String = campos("Assunto").Text.Trim()
+    Dim dataCriacao As Date = dtp.Value
+
+    ' Aplicar propriedades em cada documento selecionado
+    For Each oDoc As Document In modelosSelecionados
+        Try
+            Dim partNumber As String = ""
+            Try
+                partNumber = oDoc.PropertySets.Item("Design Tracking Properties").Item("Part Number").Value
+            Catch
+            End Try
+
+            Dim assuntoFinal As String = assunto
+            If assuntoFinal = "=<Part Number>" Then
+                assuntoFinal = partNumber
+            End If
+
+            AtualizarPropriedadesDoc(oDoc, dataCriacao, titulo, autor, assuntoFinal, responsavel, empresa, projetista, engenheiro, fornecedor, webLink)
+            oDoc.Save()
+        Catch ex As Exception
+            MessageBox.Show("Erro ao atualizar " & oDoc.DisplayName & vbCrLf & ex.Message, "Erro")
+        End Try
+    Next
+
+    MessageBox.Show("Propriedades aplicadas com sucesso!", "Finalizado")
+End Sub
+
+' === MÉTODOS AUXILIARES ===
+
+Sub AtualizarArvoreBOM_Montagem(treeView As System.Windows.Forms.TreeView, asmDoc As AssemblyDocument)
+    treeView.Nodes.Clear()
+    Dim bomRows As BOMRowsEnumerator = GetBOMRowsFromAssembly(asmDoc)
+    If bomRows IsNot Nothing Then
+        For Each row As BOMRow In bomRows
+            AddBOMRowNode(Row, treeView.Nodes)
+        Next
+        treeView.ExpandAll()
+    End If
+End Sub
+
+Function GetBOMRowsFromAssembly(asmDoc As AssemblyDocument) As BOMRowsEnumerator
+    Try
+        Dim bom As BOM = asmDoc.ComponentDefinition.BOM
+        bom.StructuredViewEnabled = True
+        bom.StructuredViewFirstLevelOnly = False
+        For Each view As BOMView In bom.BOMViews
+            If View.ViewType = BOMViewTypeEnum.kStructuredBOMViewType Then
+                Return View.BOMRows
+            End If
+        Next
+    Catch
+    End Try
+    Return Nothing
+End Function
+
+Sub AddBOMRowNode(row As BOMRow, parent As System.Windows.Forms.TreeNodeCollection)
+    Try
+        Dim docPath As String = ""
+        Dim partName As String = ""
+        Dim itemName As String = row.ItemNumber
+        Try
+            If row.ComponentDefinitions IsNot Nothing AndAlso row.ComponentDefinitions.Count > 0 Then
+                Dim doc = row.ComponentDefinitions.Item(1).Document
+                docPath = doc.FullFileName
+                Try
+                    partName = doc.PropertySets.Item("Design Tracking Properties").Item("Part Number").Value
+                Catch
+                End Try
+            End If
+        Catch
+        End Try
+
+        Dim labelNumber As String = If(partName <> "", partName, itemName)
+        Dim nodeText As String = $"({itemName}) {labelNumber}"
+        Dim tag = Tuple.Create(docPath, itemName, labelNumber)
+
+        Dim node As New System.Windows.Forms.TreeNode(nodeText) With {.Tag = tag, .Name = itemName}
+        parent.Add(node)
+
+        If row.ChildRows IsNot Nothing AndAlso row.ChildRows.Count > 0 Then
+            For Each child As BOMRow In row.ChildRows
+                AddBOMRowNode(child, node.Nodes)
+            Next
+        End If
+    Catch
+    End Try
+End Sub
+
+Sub ObterDocumentosSelecionados(nodes As System.Windows.Forms.TreeNodeCollection, modelosSelecionados As List(Of Document))
+    For Each node As System.Windows.Forms.TreeNode In nodes
+        If node.Checked And node.Tag IsNot Nothing Then
+            Dim tag = CType(node.Tag, Tuple(Of String, String, String))
+            Dim docPath As String = tag.Item1
+            If Not String.IsNullOrEmpty(docPath) Then
+                Try
+                    Dim doc As Document = ThisApplication.Documents.Open(docPath, False)
+                    modelosSelecionados.Add(doc)
+                Catch
+                End Try
+            End If
+        End If
+        If node.Nodes.Count > 0 Then
+            ObterDocumentosSelecionados(node.Nodes, modelosSelecionados)
+        End If
+    Next
+End Sub
+
+Function ExisteNoMarcado(nodes As System.Windows.Forms.TreeNodeCollection) As Boolean
+    For Each node As System.Windows.Forms.TreeNode In nodes
+        If node.Checked Then Return True
+        If ExisteNoMarcado(node.Nodes) Then Return True
+    Next
+    Return False
+End Function
+
+Sub AlterarSelecaoTodos(nodes As System.Windows.Forms.TreeNodeCollection, selecionado As Boolean)
+    For Each node As System.Windows.Forms.TreeNode In nodes
+        node.Checked = selecionado
+        If node.Nodes.Count > 0 Then
+            AlterarSelecaoTodos(node.Nodes, selecionado)
+        End If
+    Next
+End Sub
+
+Sub AtualizarPropriedadesDoc(doc As Document, dataCriacao As Date, titulo As String, autor As String, assunto As String, responsavel As String, empresa As String, projetista As String, engenheiro As String, fornecedor As String, webLink As String)
+    Dim summaryProps = doc.PropertySets.Item("Inventor Summary Information")
+    Dim docSummaryProps = doc.PropertySets.Item("Inventor Document Summary Information")
+    Dim designProps = doc.PropertySets.Item("Design Tracking Properties")
+
+    If titulo <> "" Then SetOrAddProperty(summaryProps, "Title", titulo)
+    If autor <> "" Then SetOrAddProperty(summaryProps, "Author", autor)
+    If assunto <> "" Then SetOrAddProperty(summaryProps, "Subject", assunto)
+
+    If responsavel <> "" Then SetOrAddProperty(docSummaryProps, "Manager", responsavel)
+    If empresa <> "" Then SetOrAddProperty(docSummaryProps, "Company", empresa)
+
+    If projetista <> "" Then SetOrAddProperty(designProps, "Designer", projetista)
+    If engenheiro <> "" Then SetOrAddProperty(designProps, "Engineer", engenheiro)
+    If fornecedor <> "" Then SetOrAddProperty(designProps, "Vendor", fornecedor)
+    If webLink <> "" Then SetOrAddProperty(designProps, "Catalog Web Link", webLink)
+
+    SetOrAddProperty(designProps, "Creation Time", dataCriacao)
+End Sub
+
+Sub SetOrAddProperty(propertySet As Inventor.PropertySet, propName As String, propValue As Object)
+    Try
+        propertySet.Item(propName).Value = propValue
+    Catch
+        Try
+            propertySet.Add(propValue, propName)
+        Catch
+        End Try
+    End Try
+End Sub
