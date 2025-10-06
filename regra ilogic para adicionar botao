@@ -1,0 +1,29 @@
+' === iLogic Rule: Sincronizar Item Numbers com AddIn ===
+
+' GUID do seu AddIn
+Dim addInGuid As String = "{bd2ec21a-725f-415f-826e-309a6ed74dde}"
+
+Try
+    ' Obter AddIn via ApplicationAddIns
+    Dim addIn As ApplicationAddIn = ThisApplication.ApplicationAddIns.ItemById(addInGuid)
+
+    ' Ativar o AddIn se ainda não estiver ativo
+    If Not addIn.Activated Then
+        addIn.Activate()
+    End If
+
+    ' Obter objeto de automação
+    Dim syncObj As Object = addIn.Automation
+
+    ' Verificar se o objeto foi obtido com sucesso
+    If syncObj IsNot Nothing Then
+        ' Chamar o método Sincronizar()
+        syncObj.Sincronizar()
+    Else
+        MessageBox.Show("Falha ao obter o objeto de automação do AddIn.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
+    End If
+
+Catch ex As Exception
+    ' Mostrar erro amigável
+    MessageBox.Show("Erro ao executar o AddIn:" & vbCrLf & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
+End Try
