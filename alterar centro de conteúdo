@@ -1,0 +1,38 @@
+'This iLogic demo replaces the given standard component
+'with another member from same family.
+
+' row number of the new family member .
+Dim NewRow As Integer = 10
+
+'active assembly s
+Dim oMainAsm As AssemblyDocument = ThisDoc.Document
+Dim oAsmDef As AssemblyComponentDefinition = oMainAsm.ComponentDefinition
+
+' get the occurrence by its position in the occurrences collection
+Dim oOcc As ComponentOccurrence = oAsmDef.Occurrences.Item(1)
+Dim oDef As PartComponentDefinition = oOcc.Definition
+Dim oDoc As PartDocument = oDef.Document
+
+'reference to the CC properties - oProps
+Dim oPropSets As PropertySets = oDoc.PropertySets
+Dim oProps As PropertySet = oPropSets.Item("Content Library Component Properties")
+
+' family id
+Dim oProp As Inventor.Property = oProps.Item("FamilyId")
+Dim FamilyId As String = oProp.Value
+'MsgBox("FamilyId: " + FamilyId)
+
+'reference to the ContentFamily
+Dim oContentCenter As ContentCenter = ThisApplication.ContentCenter
+Dim oFamily As ContentFamily = oContentCenter.GetContentObject("v3#" + FamilyId + "#")  
+'MsgBox("Content Family DisplayName:  " + oFamily.DisplayName & vbNewLine & _
+'	    "Rows in Family:  " & oFamily.TableRows.Count )
+
+'create new member file
+Dim ErrorType As MemberManagerErrorsEnum
+Dim strContentPartFileName As String
+Dim strErrorMessage As String
+strContentPartFileName = oFamily.CreateMember(NewRow, ErrorType, strErrorMessage)
+
+'replace the existing component with the new one
+oOcc.Replace(strContentPartFileName, False)
